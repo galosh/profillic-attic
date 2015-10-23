@@ -1,0 +1,24 @@
+On Odyssey, you need to:
+module load hpc/gcc-4.3.3
+module load hpc/boost-1.43.0
+ln -s /n/sw/boost_1_43_0/lib boost-lib
+ln -s /n/sw/boost_1_43_0/include boost-include 
+
+
+Algebra.hpp and Algebra.cpp are taken almost wholesale from Gerton Lunter's HMMoC code.  It is licensed under the GPL.  I have modified these a bit from their originals, but I am greatly in debt to Gerton Lunter and to this code.  It provides both a unified templated way to handle various approaches to numerical representation (eg. real, float) and also a clever and very useful "boyuant float" type (bfloat).
+
+Rather than implement my own Residue types (eg aminoacid, iupac, rna, etc), I now use seqan (http://www.seqan.de/), an open source C++ library for sequence analysis.  It is released under the LGPL 3.
+
+Now if you want to change from DNA nucleotides to aminoacids, set the flag -D__PROFUSE_USE_AMINOS eg by adding it to CFLAGS.
+
+For now, CreateRandomSequence is hard-coded to create DNA seqs, but that could easily be changed.
+
+I've been playing around with integration with hmmer and muscle -- if you want to compile with them, modify the Makefile (eg HMMER_CFLAGS, etc.).  For now these need to be installed in the particular version I used and with the particular modifications made by me.  This isn't necessary for the core programs or the converters (except for profile2hmmer), and with some work the tests could be made to compile without them.  I believe that I've already done that for muscle (-D_HAVE_MUSCLE).
+
+Right now profusetest is not compiling -- something needs to be updated in ProfileGibbs.hpp.  This is a TODO item.
+
+Right now MuscleHMMerTests is not compiling -- it needs to be updated for the use of seqan and Algebra.hpp.  This is a TODO item.
+
+  --> MuscleHMMerTests was aka prolific --> it's a program that uses muscle and hmmer code to read in an msa, make a hmmer profile with it (via hmmbuild), convert that profile to a galosh profile, then train the profile and score it.  It also has the beginnings of the hierarchical profiles idea (ie. iterated subdivision of the training sequences and possible retraining of separate profiles).  Also, it uses prefab4 code and reference sequences to quality-score the resulting alignments.
+
+NOTE THAT RIGHT NOW, RABINER SCALING SEEMS TO BE BROKEN.  TODO: FIX!

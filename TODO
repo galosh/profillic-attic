@@ -1,0 +1,482 @@
+DONE: Right now if there is an X in an aminoacid sequence, it reads it as an A.  I think it should just skip it, as if it weren't there.  Maybe this can be an optional thing.  Look at the sequence for ">1SCTA" in fasta/hbrspgi3dasct3sdha.globins.fasta
+  -- Jinfeng says that there are some "!" characters in fasta/trx_seq_ss_111.dssp, which should be treated like "X"s (missing data; unknown residue)
+DONE: The test_dssp multiple alignment output doesn't include the DSSP, just the aminoacid sequence.  Investigate how to fix this.. in the past I have somehow created output with the DSSP, but maybe by hacking something.
+  -- See DynamicPrograming.hpp inner class MultlipleAlignment, method toPairwiseStream (..), around line 674.
+DONE: Ententes?  Is there an easy way to do this fast?  The fasta/trx_seq_ss_111.dssp sequences are very distant.
+  -- Already we have everything we need to put together ententes on a per-sequence basis.
+DONE: Could just save distances easily in the trainer.
+     -- What distance metric?
+        DONE: KL distance, cross-entropy, and Symmeterized KL
+        -- Euclidean?  Normalized Euclidean (Mahalanobis with diagonal covariance)?
+        -- Mahalanobis?
+        -- Bhattacharyya distance?
+DONE: Need to modify Profile to support profile trees.
+  --- [Partially done, but presently broken: ProfileTreeInternalNode] Need to make child profiles that inherit from and modify/extend parent profiles.
+DONE: Switch to using double as ProbabilityType and LogProbability only as ScoreType and ScoreDifferenceType.
+DONE: The trainer should be modified to incorporate the biclustering ideas.
+DONE: I ran gprof to profile it, and I got 100.0% of the time is in exp and log.  Time for Rabiner scaling!
+DONE: The entente values aren't really probabilities.  LogProbability operator+ has been fixed to allow values exceeding 1, but there is an expense of an additional exponentiation. (UPDATE: with rabiner scaling, ententes don't need logging)
+DONE: Just get rid of the position mixing stuff.  It is now obsolete and somewhat confusing.
+DONE: Start using the fancy child profile position sharing stuff in the tree trainer.
+DONE: training of global params is presently disabled.  m_global_entente is defined in ProfileTrainer.hpp but not used.  In DynamicPrograming.hpp there is no update function for the global entente.
+DONE: Start ProfileTreeTrainer by training the superfamily profile with all of the sequences.
+DONE: Global bw update currently has no bw_inverse_scalar.  It just updates directly.
+DONE: profile read/write
+  -- using Boost's serialization
+DONE: profile emit
+DONE: Implement unconditional BW
+DONE: add in training phases: globals, positions, seq ids
+
+* high-level test suite
+  DONE: For single profiles
+    DONE: Unconditional BW
+  DONE: For a single subfamily
+    DONE: Need to change ProfuseTest to train subfamilies too.
+  -- Generate a string of seeds, to more quickly debug..
+  -- Add callouts to eg. HMMER, SAM, t-coffee, muscle
+    -- To compare to multiple alignment programs, need a metric
+      -- # in correct alignment column ?
+        -- Problem identifying columns.  Could treat columns like clusters & use a clustering metric like adj rand index..
+    -- Problem with converting between pos-specific params and global?
+  -- Compiling and interpreting results
+    -- see test_results/results.R
+    -- automate computing those stats?
+ -- Don't recompute true profile stuff, since that doesn't change.
+ -- Add Euclidean distance to test suite
+
+* Lengthadjust
+  DONE: Make sure the revert-to-profile is converging.  It seems to lower the score a lot to revert, even after a long time. (FIXED: the problem was that it was enforcing even indel probs after reverting; now this is an option, currently off).
+  -- Investigate "Model Surgery" references
+  -- Long cycles are still happening.  What to do about it?
+    -- Idea: two parts
+      -- keep track of the lowest per-sequence indel value passing the threshold.  When increasing the threshold, if that value is higher than the increased threshold, use it instead.
+        -- problem: this exacerbates the bias introduced by changing the threshold as we go, since lower-numbered rows are encountered later, after increasing the treshold..
+      -- new long-range cycle detection: at the end of a positions-phase, if the length changes, note if we've trapped a peak or a trough: if it is going down after having gone up or v/v.  If so, and if the length at the peak is the same as at the last peak, and if the length at the trough was the same twice in a row, then call it a long-range cycle and increase the threshold.
+  -- Sometimes the score after training is worse than before!  At least revert.  This shouldn't be happening, though.
+
+  -- ProfileTreeTrainer: Try varying the indel cost for p-p alignment (look into what scale it should be)
+    -- Try replacing SKL p-p alignment with other kinds.
+      -- Look into using scoring matrices
+        -- muscle?
+        -- seqan?
+
+
+* Trees
+  DONE: Make ProfileTree
+  DONE: Update MultipleAlignment for use with a whole tree
+  DONE: Right now ProfileTreeTrainer can only handle (exactly) three profiles.  Generalize.
+  -- ProfileTreeTrainer
+    -- Learning tree structure
+      DONE: Using muscle
+      -- How to score a profile tree?
+      -- Switch from muscle -- maybe use Seqan or Bio++ or something like that?
+      -- Walk back up tree and refine?
+        -- Especially if the lengths of the leaf sequences are the same but the length of their parent is not...?
+      -- Try joining positions (?)
+      -- incorporate a phylogenetic model
+    -- Fixed ProfileTree structure
+  -- Can we compare two ProfileTrees?  With Seq split params?  Is there an unidentifiability problem?
+  -- Sequence weighting using entropy?
+    -- In (old) hmmer, this is accomplished by weighing the ententes as they are combined (by weight/seq_prob instead of just 1/seq_prob).
+
+* Investigate Seqan
+  -- awesome.
+* Investigate Bio++
+* Investigate hmmoc
+* Investigate sam
+* Investigate HMM toolkit
+
+* Subfamily training
+ -- Is the subfamily sequence identifier thing being messed up when using unconditional BW?  It seems so.  Fix.
+    -- It is because the globals get confused.
+    -- Introduce a new intermediate possibility, with globals/transitions separated from emission params.
+  -- To be mathematically correct, instead of starting with random sequence identifiers, we should start with (whatever the prior is, default .5) and start with random superfamily and subfamily profiles...
+  -- Make ProfileTreeInternalNode work with its m_parentPositionVariations better.
+  -- Figure out a better way to determine which profile positions to collapse between child and parent in ProfileTreeTrainer.hpp
+
+* program options
+  -- use boost program_options?
+  -- boost property_map?
+
+* Algebra
+  -- BFloats can only be positive for now.  TODO: make one that can be negative, since we sometimes represent negative values (where?)
+
+* Plan 7
+  DONE: (mixture) dirichlet priors
+  -- Position-specific transitions
+    -- generalized parameter tying
+      -- read the paper on this..
+    -- template to determine what params are pos-specific?
+  -- deletions more likely at end of profile -- ok?
+    -- at each pos, prob( del ) is prob( open ) + prob( continue )...
+  -- simulation
+    -- Consensus + divergence, with substitution matrices
+      -- simulating from varying-divergence-level profiles
+      -- using substitution matrices
+    -- Vary profile length from actual length
+    -- Add timing to ProfuseTest?
+  -- training
+    -- Consensus + divergence, with substitution matrices
+    -- Implement Baldi-style gradient ascent
+      -- still TODO: for subfamilies....
+    -- Siegel method
+  -- sampling
+    -- [DONE] position-specific
+      -- gibbs
+        -- inline: in backsweep, sample a path step for each sequence (proportional to the conditional probability of visiting a state/time, given subsequent partial path), then sample parameters.
+          -- globals
+            -- could wait until a whole path has been sampled, draw new params at the end
+            -- OR could sample from the posterior after each position
+        -- OR first sample path, then sample parameters (equiv to time-oriented)
+    -- [SKIP] time-oriented
+      -- gibbs
+        -- inline: maintain tally of paths-so-far, sampling from the current posterior and then updating it at every time step
+        -- OR first sample path, then sample parameters (equiv to pos-specific)
+    -- Consensus + divergence, with substitution matrices
+  -- searching
+    -- wing retraction?
+    -- deletion-in, deletion-out
+  -- profile-profile alignment
+    -- [DONE] Implement basic profile-profile alignment
+    -- Lit search
+      -- See Madera, "Profile Comparer" http://supfam.org/PRC/ (http://bioinformatics.oxfordjournals.org/cgi/content/short/24/22/2630)
+  -- efficiency
+    -- Reverse algorithm for space efficiency
+    -- checkpoint compression
+      -- Note paper on this
+    -- scale to use longs rather than doubles, ala HMMER
+    -- approximate log
+    -- avoid +/- logs when result will be unchanged (when exp(|a-b|)==0)
+    -- memoization
+    -- templatize inner loop ifs
+      -- DNA, Aminoacid, DSSP
+    -- "compiling" models?  Use OO/templates to represent state transition graph.
+
+* Gibbs
+ -- [Done] Integrating into ProfuseTest
+ -- [Done] Sampling globals
+ -- [Done] I need to make sure that the same priors are used in all tests from ProfuseTest so I'm comparing apples to apples..
+ -- Use m_samplingPhase
+ -- Setting starting profile(s)
+ -- The chains don't converge but one chain's average is usually really good.  Why?
+   -- Seems to happen when the conservation rate is high, making me think it must be an autocorrelation issue..
+     -- Metropolis?  Gibbs-as-metropolis?
+ -- Gibbs speed: can I use the same Uniform draw many times?  Would that speed anything up?  I feel like I saw something about how many digits of the random number can be used -- maybe on the boost::random site.
+* TODO: Sometimes R-hat stays high because there are too few iterations to see that the chains have in fact converged (the autocorrelation is the problem).  Maybe when incrementing max_iters, mutliply max_iters_increment by the max lag?
+* TODO: Should R-hat be based on the thinned values?  Aren't the variance estimates biased by the autocorrelation?
+
+
+* Plan 9
+  -- simulation
+  -- training
+  -- sampling
+
+* Biological examples
+  -- miRNA
+    -- miRseeker
+    -- 21u
+      -- Bartel, DP dec 2006 Cell paper on conserved regulatory regions of 21u
+      -- Got 'em from Eddy (in our Liu lab).  Run!
+      -- 15722 seqs, all length 21
+  -- CASP proteins
+  -- transposons
+    -- Need support for ambiguity chars
+     -- check out that other package (Seqan)
+       -- DNA5 supports Ns but not general IUPACs.
+       -- ooh! there is an iupac type, it turns out.
+     -- maybe implement it ourselves..
+       -- create a special Residue type that is ambiguous over another Residue type.
+  -- motifs
+    -- Yuan's data?
+      -- B. subtilis (upstream sequences)
+    -- Eugene's upstream sequences
+  -- email Sean Eddy
+  -- email David Haussler
+
+* Other applications
+  -- Speech recognition
+    -- "extended BW"?
+  -- CPMs
+
+* Paper stuff:
+  -- Maths for CBW
+  -- time-oriented perspective
+    -- Jun's JASA '99 paper on Markovian Structures introduces time-oriented view of PHMMs
+  -- Enter papers into db & recycle them
+    -- organize unsorted papers
+  -- Scour notebooks for references
+  -- Go through ISB PHMMs folder
+
+* CHAIN
+  -- Read manual, papers
+  -- Feedback to Andy
+  -- run demos
+
+* [DONE] Add additional convergence criterion based on euclidean distance.
+  -- Normalized by number of params? (divide by sqrt( numParams ))
+
+* Build suite
+  -- use boost Build?  boost BJam?  automake?
+
+* Distance comp
+  -- Jun's idea for per-position bayes factors.  Implement.  Wonder if it's a problem that our "counts" are actually expected counts averaged over the missing data, *using assumed/trained model params*.
+
+Optimization:
+  DONE: Make the alignment_profile_position calculation simultaneously calculate the coefficients vector 
+  * forward_viterbiAlign in DynamicPrograming (by using *= rather than block multiples, to avoid allocating many tmp ScoreType vars).
+  * Only use the matrixRowScaleFactor when the MatrixValueType is not a log type.
+  ## TODO: complete transition to control inlining better.
+  ### Note for max inlining (slow!): (is -O4 a bad idea?  Also, note -g)
+  # setenv CFLAGS "-g -O4 -Winline -funroll-loops --param large-function-growth=100000 --param max-inline-insns-single=45000 --param inline-unit-growth=500"
+  # setenv CFLAGS "-O4 -Winline -funroll-loops --param large-function-growth=500000 --param max-inline-insns-single=500000 --param inline-unit-growth=500"
+### Runs out of memory after about 25 minutes:
+  # setenv CFLAGS "-O3 -Winline -funroll-loops --param large-function-growth=100000 --param max-inline-insns-single=45000 --param inline-unit-growth=500"
+  ## TODO: Try -fprofile-generate -fprofile-use to create and use profiling information
+    ## Log is taking most of the time.  TODO: Use hmmer's log table?
+  ## TODO: Make freeParameterCount() statically store its result, since it is fixed.
+
+* Muscle integration
+  -- DONE: use muscle to do msa output
+  -- try building profile directly from muscle profile (no fancy hmmbuild MAP stuff)
+  -- try from-scratch but use indels from hmmer profile (or sam profile)
+  -- profile-profile alignment to test separate vs. together profiles
+    -- Tried it, but the 12asA_1atiA set doesn't actually align, even using muscle alone (qscore returns Q=0;Modeler=0;Cline=-0.071;TC=0)
+    -- Found a better one: 1atiA_1g5ha Q=0.787;Modeler=0.801;Cline=0.82;TC=0.787 (theirs) vs. Q=0.664;Modeler=0.78;Cline=0.714;TC=0.664 (mine, using all sequences together) vs. Test=prefab4-in/1atiA_1g5hA_LowIndels_improved_BigPrePost_combined.muscle;Ref=/Users/Paul/src/prefab4/ref/1atiA_1g5hA;Q=0.417;Modeler=0.564;Cline=0.488;TC=0.417 
+  -- try conditional, then unconditional bw
+    -- unconditional bw seems to do better (but is way slower) than cbw for the 1aitA set.
+    -- weirdly the score goes up after 2 iters of (post-cbw) Ubw but then down after a full 30 for the 12asA_1atiA dataset
+    -- try switching off (1 iteration of each).
+  -- DONE: Better convergence detection? [Added avg euclidean distance metric]
+  -- Use a scoring metric that reflects goal of alignment:
+    -- muscle's SP?
+    -- viterbi train?
+  -- DONE: Use muscle tree to divide sequences into groups for separate training
+  -- DONE: Fasta from muscle SeqVect
+  -- DONE: priors instead of profileMinimumValue
+  -- if the score doesn't change, don't keep running Cbw_Ubw...
+  -- Use hmmer for viterbi?  It is programmed for efficiency.  Also, make sure it gives same results.
+  -- For comparison purposes, if we set maxiters to 2 in the initial muscle run, we should also run it without that to get un-hindered Qscore info..
+  -- NOTE: Hmmer's P7Forward is flawed!  Notify Sean Eddy?  I put a note in the core_algorithms.c file about it, just above that function.
+  -- Sequence weighting.  In (old) hmmer, this is accomplished by weighing the ententes as they are combined (by weight/seq_prob instead of just 1/seq_prob).
+
+* Some results of the muscle-hmmer-profuse integration:
+  -- trainer2.m_parameters.maxIterations = 2;
+  -- trainer2.m_parameters.trainGlobalsFirst = false;
+  -- trainer2.m_parameters.trainProfileGlobals = true;
+  -- 1g5hA:
+  # READ in MSA from prefab4-in/1g5hA.muscle
+  # Total SP score is 36688.5
+  # Wrote out SP scores to prefab4-in/1g5hA.muscle.spscores
+  # READ in MSA from prefab4-in/1g5hA.muscle.hmmbuild.profuse.Cbw.blast.selex.a2m
+  # Total SP score is 41944.2
+  # Wrote out SP scores to prefab4-in/1g5hA.muscle.hmmbuild.profuse.Cbw.blast.selex.a2m.spscores
+  # READ in MSA from prefab4-in/1g5hA.muscle.hmmbuild.profuse.notraining.blast.selex.a2m
+  # Total SP score is 40047.8
+  # Wrote out SP scores to prefab4-in/1g5hA.muscle.hmmbuild.profuse.notraining.blast.selex.a2m.spscores
+  # READ in MSA from prefab4-in/1g5hA.muscle.hmmbuild.profuse.Cbw_Ubw2.blast.selex.a2m
+  # Total SP score is 43449.8
+  # Wrote out SP scores to prefab4-in/1g5hA.muscle.hmmbuild.profuse.Cbw_Ubw2.blast.selex.a2m.spscores
+  # READ in MSA from prefab4-in/1g5hA.muscle.hmmbuild.profuse.Cbw_Ubw4.blast.selex.a2m
+  # Total SP score is 43094.7
+  # Wrote out SP scores to prefab4-in/1g5hA.muscle.hmmbuild.profuse.Cbw_Ubw4.blast.selex.a2m.spscores
+  -- 1atiA (taken from 1atiA_1g5ha; different from the one taken from 12asA_1atiA)
+  # READ in MSA from prefab4-in/1atiA.from_1atiA_1g5hA.muscle
+  # Total SP score is 40316.3
+  # Wrote out SP scores to prefab4-in/1atiA.from_1atiA_1g5hA.muscle.spscores
+  # READ in MSA from prefab4-in/1atiA.from_1atiA_1g5hA.muscle.hmmbuild.profuse.Cbw.blast.selex.a2m
+  # Total SP score is 48486.2
+  # Wrote out SP scores to prefab4-in/1atiA.from_1atiA_1g5hA.muscle.hmmbuild.profuse.Cbw.blast.selex.a2m.spscores
+  # READ in MSA from prefab4-in/1atiA.from_1atiA_1g5hA.muscle.hmmbuild.profuse.notraining.blast.selex.a2m
+  # Total SP score is 46756.2
+  # Wrote out SP scores to prefab4-in/1atiA.from_1atiA_1g5hA.muscle.hmmbuild.profuse.notraining.blast.selex.a2m.spscores
+  # READ in MSA from prefab4-in/1atiA.from_1atiA_1g5hA.muscle.hmmbuild.profuse.Cbw_Ubw2.blast.selex.a2m
+  # Total SP score is 49812.3
+  # Wrote out SP scores to prefab4-in/1atiA.from_1atiA_1g5hA.muscle.hmmbuild.profuse.Cbw_Ubw2.blast.selex.a2m.spscores
+  # READ in MSA from prefab4-in/1atiA.from_1atiA_1g5hA.muscle.hmmbuild.profuse.Cbw_Ubw4.blast.selex.a2m
+  # Total SP score is 50793.9
+  # Wrote out SP scores to prefab4-in/1atiA.from_1atiA_1g5hA.muscle.hmmbuild.profuse.Cbw_Ubw4.blast.selex.a2m.spscores
+  -- 1atiA_1g5ha_combined
+  # READ in MSA from prefab4-in/1g5hA.muscle.hmmbuild.profuse.Cbw_Ubw2.blast.selex.a2m
+  # READ in MSA from prefab4-in/1atiA.from_1atiA_1g5hA.muscle.hmmbuild.profuse.Cbw_Ubw2.blast.selex.a2m
+  # 00:00:00   100 MB(20%)  Aligning profiles
+  # 00:00:00   100 MB(20%)  Building output
+  # Total SP score is 57251.9
+Wrote out SP scores to prefab4-in/1atiA_1g5hA_combined.muscle.spscores
+  # READ in MSA from prefab4-in/1atiA_1g5hA.muscle
+  # Total SP score is 40117.9
+  -- 1atiA_1g5hA_LowIndels_improved_BigPrePost_combined
+  # READ in MSA from prefab4-in/1atiA.from_1atiA_1g5hA.muscle.hmmbuild.profuse.LowIndels_improved_BigPrePost.Cbw_Ubw4.blast.selex.a2m
+  # Total SP score is 39368.3
+  # READ in MSA from prefab4-in/1g5hA.muscle.hmmbuild.profuse.LowIndels_improved_BigPrePost.Cbw_Ubw4.blast.selex.a2m
+  # Total SP score is 37181.3
+  # 00:00:00   100 MB(20%)  Aligning profiles
+  # 00:00:00   100 MB(20%)  Building output
+  # Total SP score is 38573.2
+  # Wrote out SP scores to prefab4-in/1atiA_1g5hA_LowIndels_improved_BigPrePost_combined.muscle.spscores
+  -- 12asA:
+  # READ in MSA from prefab4-in/12asA.muscle
+  # Total SP score is 26796.5
+  # READ in MSA from prefab4-in/12asA.muscle.hmmbuild.profuse.blast.selex.a2m
+  # Total SP score is 28242.1
+  # READ in MSA from prefab4-in/12asA.muscle.hmmbuild.profuse.notraining.blast.selex.a2m
+  # Total SP score is 27432.8
+  # READ in MSA from prefab4-in/12asA.muscle.hmmbuild.profuse.startingfromscratch.blast.selex.a2m
+  # Total SP score is 25011.3
+  -- 1atiA:
+  # READ in MSA from prefab4-in/1atiA.muscle
+  # Total SP score is 38808.8
+  # Wrote out SP scores to prefab4-in/1atiA.muscle.spscores
+  # READ in MSA from prefab4-in/1atiA.muscle.hmmbuild.profuse.blast.selex.a2m
+  # Total SP score is 44247.6
+  # Wrote out SP scores to prefab4-in/1atiA.muscle.hmmbuild.profuse.blast.selex.a2m.spscores
+  # READ in MSA from prefab4-in/1atiA.muscle.hmmbuild.profuse.notraining.blast.selex.a2m
+  # Total SP score is 41605.6
+  # Wrote out SP scores to prefab4-in/1atiA.muscle.hmmbuild.profuse.notraining.blast.selex.a2m.spscores
+  # READ in MSA from prefab4-in/1atiA.muscle.hmmbuild.profuse.startingfromscratch.blast.selex.a2m
+  # Total SP score is 26284.3
+  # Wrote out SP scores to prefab4-in/1atiA.muscle.hmmbuild.profuse.startingfromscratch.blast.selex.a2m.spscores
+   -- using conditional BW for 2 iterations, then Ubw for either 2 or 30:
+    # READ in MSA from prefab4-in/1atiA.muscle.hmmbuild.profuse.Cbw_Ubw2.blast.selex.a2m
+    # Total SP score is 45110.8
+    # Wrote out SP scores to prefab4-in/1atiA.muscle.hmmbuild.profuse.Cbw_Ubw2.blast.selex.a2m.spscores
+    # READ in MSA from prefab4-in/1atiA.muscle.hmmbuild.profuse.Cbw_Ubw30.blast.selex.a2m
+    # Total SP score is 43941.9
+    # Wrote out SP scores to prefab4-in/1atiA.muscle.hmmbuild.profuse.Cbw_Ubw30.blast.selex.a2m.spscores
+   -- using Unconditional BW (and an iteration limit of 30)
+    # Total SP score is 46031.3
+    # Wrote out SP scores to prefab4-in/1atiA.muscle.hmmbuild.profuse.Ubw.blast.selex.a2m.spscores
+    # READ in MSA from prefab4-in/1atiA.muscle.hmmbuild.profuse.startingfromscratch.Ubw.blast.selex.a2m
+    # Total SP score is 30936.9
+    # Wrote out SP scores to prefab4-in/1atiA.muscle.hmmbuild.profuse.startingfromscratch.Ubw.blast.selex.a2m.spscores
+  -- 12asA_1atiA:
+  # READ in MSA from prefab4-in/12asA_1atiA.muscle.fasta
+  # Total SP score is 33900
+  # Wrote out SP scores to prefab4-in/12asA_1atiA.muscle.fasta.spscores
+  # READ in MSA from prefab4-in/12asA_1atiA.muscle.fasta.hmmbuild.profuse.blast.selex.a2m
+  # Total SP score is 42627.7
+  # Wrote out SP scores to prefab4-in/12asA_1atiA.muscle.fasta.hmmbuild.profuse.blast.selex.a2m.spscores
+  # READ in MSA from prefab4-in/12asA_1atiA.muscle.fasta.hmmbuild.profuse.notraining.blast.selex.a2m
+  # Total SP score is 40180.5
+  # Wrote out SP scores to prefab4-in/12asA_1atiA.muscle.fasta.hmmbuild.profuse.notraining.blast.selex.a2m.spscores
+  # READ in MSA from prefab4-in/12asA_1atiA.muscle.fasta.hmmbuild.profuse.startingfromscratch.blast.selex.a2m
+  # Total SP score is 19841.3
+  # Wrote out SP scores to prefab4-in/12asA_1atiA.muscle.fasta.hmmbuild.profuse.startingfromscratch.blast.selex.a2m.spscores
+  -- ARGH!  muscle's output depends on the order of the input sequences.  It also depends on whether "-stable" is used (which is supposed to just affect the output order).
+    -- with the -stable option, the aligned output does seem to be independent of rearrangements (except the order, of course).  -brenner also produces order-invariant output.  Is this a bug in the estring code?
+    -- g_bStable is accessed in makerootmsa.cpp in GetFirstNodeIndex(tree) and GetNextNodeIndex(tree,uint), both of which are accessed only in that file, in MakeRootMSA(..), which is accessed in progalign.cpp by ProgressiveAlignE(..) (called in DoMuscle() among other places) and in realigndiffse.cpp by RealignDiffsE (called by RefineTreeE(..), which is called by DoMuscle())
+    -- problem not seen if maxiters is 1 or 2.  --noanchors does not fix the problem.
+    -- trees after iteration 2 are the same except for swapping of leaves (left<->right) within two internal nodes
+    -- Problem does not seem to be in GetInternalNodesInHeightOrder (phy2.cpp), which returns the same for both.
+    -- even after 3 iterations (with -noanchors) there is a difference (NOTE BUG: when -noanchors is NOT present (eg -anchors, the default), -maxiters has no effect beyond 2).
+    -- Found it: in refinehoriz.cpp, in RefineHeightParts, a switch of neighbors results in a different grouping (since the left or right branch is taken, depending on the iteration).
+     -- TODO: Reorder tree leaves to solve this?
+       -- setting cluster2 to neighborjoining does not solve it.
+ -- NOTE I have found a "bug" in muscle: it seems to be using a variant of LE, but not quite LE as described in the paper.  Where (p_ij/(p_i*p_j)) appears in the def of the LE score, muscle is actually using S_ij = log(p_ij/(p_i*p_j)).  See profilefrommsa.cpp to see where PP.m_AAScores is set, and scorepp.cpp to see where it is used.  The scores themselves are in g_ptrScoreMatrix, set in params.cpp to various things; see eg. vtml2.cpp (where it is clearly set to hold log ratios -- they go negative).  See also GetFractionalWeightedCounts in msa2.cpp, and note lack of support for most iub codes, and also note how fOcc is 1-fGap, but fGap is the sum of the weights of those seqs with gaps: very weird.  BUT won't this result in a log of a negative number sometimes?  Maybe the recentering helps, and the fact that you always get positive values whenever it's the same letter...?
+  -- Profile-Profile Scoring: see ObjScoreDP_Profs in muscle's objscore2.cpp -- but note "bug" -- see prev TODO file note.
+
+BUGS, etc:
+* Each sequence contains its own supportedTypes object!
+* In the trainer, the positionShouldBeTrained stuff is not presently compatible with the proposeProfileLengthChanges stuff..
+* In ProfileGibbs.hpp, don't allocate/use a whole counts matrix per chain if using "Per Position" Gibbs, since we don't use the whole matrix in that case.
+* ProfileTreeRoot::operator=(..) is NOT being called when I do profile1 = profile2.  Why?  This causes major problems because the m_root pointers don't get set correctly.  Temporary workaround: use copyFrom(..)
+ -- Consider removing those pointers?  Actually we only use them when accessing the global params via the positions.  Until we support both position-specific transitions and globals, it's not necessary to have those pointers.  I could force access via the root.
+* There's a major problem with the supportedTypes.  I made a NewSupportedTypes template solution, which would work, but on reflection I think I should get rid of it altogether, scrap PolySequences, and just use compound Residue types to support AminoAcid/DSSP.  Anyway I haven't focused on that in a long time.  The bug is that the profile parent templates all store their own pointers to the supportedTypes, and something goes wrong somehow and the wrong ones get returned.  I have a temporary workaround: I changed the ProfileTreeRoot so it stores a pointer to a supportedTypes object, rather than having its own copy.
+* In the current system, deletions at the front of a sequence are opened using a B->D transition, but deletions at the end are an M->D transition.  Maybe this is why hmmer has those "deletion out"s.
+* Why do the first and last positions get most of the training attention?
+* When using RabinerInverseScaling, you can get underflow with double-type MatrixValueTypes when the sequences are long (I tried it with a lenth 360 sequence and that's long enough to see it: fasta/12asA.short.triple).
+* In DynamicProgramming::Coefficients::calculateScore, when has_dssp and has_aminoacid are both true, there may be underflow issues.  I fixed this for the toerh cases but not for the both-case.  See note in that block of the code.
+* Make sure that other uses of sequenceAdvances correctly handle the bizarre cases at the ends; at least when row_i == last_row, non-affine-ness means that the number of sequence advances in the last row can be positive even when it was a deletion.  Arg.  I'll need to modify it to have a separate count.  For Plan 9 we'll need this for every position.  Maybe should have a bool vector of Deletion or No, then a vector counting insertions.  For now I suppose I could just store the post-align/last-pos value as 0 whenever it is a deletion, regardless of the number of post-align insertions.  That would at least make the alignment output more reliable.  Ultimately I should revamp the whole thing, generalize to allow anything to be affine or non-affine with a (separate) switch, and make pre-align and post-align insertions just like any other kind in the code.
+* There is a major problem when one tries to do m_root = other_root.  It works okay if you call m_root.copyFrom( other_root ) directly, though.  Why?  FIX!  Likewise, maybe, for internal nodes?
+* Support for 0-length sequences in ProfileTrainer.
+* Test the overflow-avoidance in the ententes.
+* [DONE] Fix LogProbability.hpp
+  -- use boost's operators.hpp
+* Fix MultinomialDistribution's euclideanDistance to include all but one of the values (when the distribution is of a type that sums to 1.. we might need to add a flag to convey when this sort of distribution isn't really a distribution (when the class is being used for another purpose, as when we use it for the coefficients).
+* There don't seem to be position steps right now, though there is some allusion to them in the code: each position is updated once before moving on to the next position...
+* Can I read in a profile? [for now, yes, but only using boost serialization]
+* I want a LOGO view, or something like I had in the gprof code, so I can see where there are conserved residues (though sometimes an "informative" column aligns mostly to deletions, so the Entente is really what we need).
+  -- Use SAM's makelogo program?
+* I've noticed some inconsistency in getters and setters.  The PositionEntente's postion() value is get and set via position(..).  Other times I use getX() and setX(..). UPDATE: I changed position() getters and setters now in PositionEntente to be consistent (getPosition(), setPosition()), but there may be others...
+* Figure out how to get the Makefile to compile the source files with the CFLAGS...
+* automake
+* ProfileTrainer::restart(..) takes a profile argument, but everthing crashes if that profile is a different length than the original profile.  FIX THIS.
+
+=====================
+
+Del-In / Del-Out ...
+* For now keep useRabinerScaling OFF.  There's a bug with it on that I haven't tracked down.  Thankfully we don't need it (I think), so long as we're using bfloat.
+* Profile2Hmmer: look at plan7.c -- it seems as if the B->M1 probability gets effectively set to 0 ?! since we are setting the del-in probability so high...
+
+======
+
+Training: Baum-Welch, Conditional Baum-Welch, (Siegel), (Baldi, Conditional Baldi), Simple Gibbs Mode/Mean, Per-Position Gibbs Mode/Mean.
+  -- Try starting from a multiple alignment (muscle?)
+  -- Implement multiple seeds and test continuing
+  -- Aminoacids
+  -- Start from a mixture of conservation rates
+  -- Implement Siegel?
+  -- Fix Baldi
+    -- Add support for unconditional Baldi
+  -- Per-position transitions? (might need strong priors)
+
+Sampling: Gibbs
+  -- Examine isolating just one position (hold everything else at correct vals), see how long it takes to converge at different conservation rates.
+  -- Look into Jun's idea that alternate convergence points are offset somehow
+    -- Yes, he's right.  Solutions?  Propose pruning a position?
+  -- Test using Sam Cook's stuff
+    -- Draw profile from priors
+    -- Draw alignments from profile
+    -- Sample L profiles from posterior via Gibbs (with thinning?)
+    -- Need scalar metric \theta: could be each component of profile, or score of alignments, or euclidean distance to true profile, ...
+    -- Calculate q(\theta), the posterior quantile of theta.
+    -- Should be uniform
+    -- Can be further tested against eg. Chi-squared...
+  -- Could use Muscle's tests but with sampled alignments.
+  -- Phylogenetic inference with sampled alignments
+  -- Read about block-based sampling: Hongkai?
+  -- Alignment profiles
+  -- Try Mode vs Mean for Gibbs.
+  -- From some initial tests (directory "./test_results/v7_seed1216183206_typeD"): at 1 expected deletion per profile, same for insertions, proflen 100, expected indel len 10, num training seqs 50, 4 chains, minGibbs 100, burnin 50: (these results are not based on analyzing the tab file.  These are just impressions from looking at the output by eye)
+    -- mode is never anywhere near as good as means
+    -- with the hack on, Gibbs scores have less variability but are bad overall, and the same across conservation rates.  In the .3 conservation case, the testing score is better than BW, but it is probably a fluke.
+    -- at .3 conservation
+      -- best Gibbs is usually overall mean, or close to it
+      -- Gibbs training score is worse than BW scores (-7125 vs -6825)
+      -- Gibbs testing score is better than BW scores (-14250 vs -14325)
+    -- at .5 conservation:
+      -- best Gibbs is usually one of the chain means, b/n 25 and 100 pts better than overall mean
+      -- Gibbs training score is usually about 750 points worse than BW scores (eg -7050 vs -6200)
+      -- Gibbs testing score is worse than BW (eg. -14050 vs. -12835)
+    -- at .7 conservation:
+      -- best Gibbs is a chain mean, way better than overall mean (by 1000-2000 points)
+      -- best Gibbs training score is sometimes close to best BW, occasionally better, high variability in all scores.
+       -- Unconditional Gibbs more often gets the better score than conditional Gibbs, but not always
+      -- testing score order matches training score order
+      -- hypothesis: the autocorrelation is probably higher when the conservation rate is high; maybe if we let it burn in for longer, and maybe take more samples (or even thin them?)
+      -- increasing burn-in to the first 1900 iterations (taking 1900-2000 as the samples) does appear to improve the chances that the best profile will be on par with the BW profiles, but the chains still do not seem to have converged, as evidenced by the overall mean still being way off.  R-hat doesn't seem to capture the failure of the chains to converge.
+
+Profile trees: Multiple Alignment
+  - Muscle
+
+Phylogenetic profile HMMs
+
+Multiple alphabets for incorporating protein structure
+  -- Get this tested/working again.
+
+Reverse calculate row, row/col anchors (checkpoint compression).
+
+I could do a profile-profile "forward" score, using a variation on the forward algorithm in which you measure the probability of exact concidence.  So you have the 3 substates at each pos, but they correspod to (M,M), (D,I), and (I,D) state-pairs (since a deletion in one profile must correspond to an insertion in the other.  The idea is to calculate the probability that a path generated by one profile would also be generated by the other profile, if you drew just one path from each, but in which a deletion in one must be an insertion in the other.  Or maybe that restriction's no good: I could allow all combinations.  Yes.  9 of them.  Probability of coincidence gets lower as a function of the lengths of the profiles, of course.  They needn't be the same length, though.  It is possible that shorter profiles (if we allow training profile length) will be have higher profile-profile forward scores (with the true profile) than longer profiles, even if the longer one is better.  The trained shorter one will by necessity have a higher insertion rate, and it could be that the penalty for offsetting the length difference isn't enough to overwhelm the benefit of a smaller profile.  Maybe this is desirable?  Like Occam's razor?  No, because we want to estimate as close to the true profile as possible.  An alternative could be to use the true indel rate only.
+
+That's all wrong.  We only want (M,M), (I,I), and (D,D) states -- exact correspondence only.  So the algorithm is O(n)!.  Unfortunately this makes it impossible for different-length profiles to be measured this way.  Maybe the two measures are good for different things?  The first one is actually measuring the probability of creating the same sequence.  The second one is measuring the probability of creating the same path.  You can do the former with different-length profiles, but not the latter.  You could conceivably allow the same path except k special deletions to explain the k extra positions of the longer one.  That would require k times the space and time, but it is never as bad as the other algorithm, which is O(nm) for n, m the profile lengths.  This one, extended, is O(nk), where k = (m-n).  So for the extended alg, the longer profile still has to generate those somehow: k positions are "missing data".  The idea here is that if you're looking for the same path to be generated by two profiles, but one profile is longer than the other, then you're looking for a same subpath, where the subpath could be obtained by assigning any k of the positions of the longer profile to the "deleted" category, meaning that the path-parts created by those positions are missing or irrelevant (so contribute prob 1.0).  All possible assignments of the k to the n positions must be computed and included.  This requires keeping separate track of min(i+1,k+1) different (M,I,D) triples at each position i (the number of deleted positions so far ranges from 0 to min(i,k)).  All of this is only required if/when profiles are of different lengths.  Until then, in O(n) time we can compute the path correspondence probability.  Have I already implemented this?  The basis of it is in calculateMatchEmissionCooccurrenceProbability(..) in Profile.hpp
+
+Ok, so I implemented the calculatePathCooccurrenceProbability(..) fn, and it is not maximized when the distributions are identical.  Maybe we should be using some sort of mutual entropy metric instead.
+
+
+LengthAdjust algorithm notes:
+  -- When the globals are reverted after a lengthadjust, they are reverted to a mixture of the original globals and all of the globals before all revert(..) calls, weighed.  The weights work like so: the original profile globals are multiplied by 10.  To this we add ( the globals * the iteration ) before every reversion.
+  -- We keep track of the iteration at which each position was created.  We don't delete a just-created position, unless it's a pre-align position.
+
+===============
+
+TODO: Seqan has a gapped sequence template ("Gaps").  Use it.
+TODO: Seqan has fasta support.  Use it.

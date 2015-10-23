@@ -1,0 +1,53 @@
+This is a note explaining why I'm abandoning USE_DEL_IN_DEL_OUT.
+
+First, to bitch and moan, and explain why:  I've spent the day trying to track down a bug.  I can replicate it with SeqanTests.cpp (svn version 85) using a file containing these sequences:
+
+>seq0
+GTGGG
+
+>seq1
+GT
+
+>seq2
+GTG
+
+>seq3
+TG
+
+.. and this starting profile:
+
+[ M->(M=0.5,I=0.0,D=0.0,W=0.5), I->(M=0.5,I=0.5), D->(M=0.5,D=0.5), I:(A=0.25,C=0.25,G=0.25,T=0.25), N->(N=0.0,B=1.0), B->(M=0.5,D=0.0,Z=0.5), Z->(Z=0.5,M=0.5), C->(C=0.0,T=1.0), W->(W=0.5,E=0.5) ]
+[ M:(A=0,C=0,G=1,T=0) ]
+[ M:(A=0,C=0,G=0,T=1) ]
+[ M:(A=0,C=0,G=1,T=0) ]
+[ M:(A=0,C=0,G=0.5,T=0.5) ]
+[ M:(A=0,C=0,G=1,T=0) ]
+
+.. when I use trainGlobalsFirst = true in SeqanTests.cpp,
+
+.. and I disable M->I and M->D transitions by inserting this code just before where it says "m_profile->copyExceptPositions( m_global_entente );" in the TRAINING_PHASE_Globals section for the case !useUnconditionalBaumWelch (uncomment it, but don't uncomment the lines with two sets of comments: those would wrongly also disable deletionIn and deletionOut):
+//#ifdef USE_DEL_IN_DEL_OUT
+//                  // TODO: REMOVE!!!! TESTING!!!!
+//                  m_global_entente[ Transition::fromMatch ][ TransitionFromMatch::toDeletion ] = 0;
+//                  m_global_entente[ Transition::fromMatch ][ TransitionFromMatch::toInsertion ] = 0;
+//                  //m_global_entente[ Transition::fromMatch ][ TransitionFromMatch::toDeletionOut ] = 0;
+//                  m_global_entente[ Transition::fromBegin ][ TransitionFromBegin::toDeletion ] = 0;
+//                  //m_global_entente[ Transition::fromBegin ][ TransitionFromBegin::toDeletionIn ] = 0;
+//                  m_global_entente.normalize( 0 );
+//#endif // USE_DEL_IN_DEL_OUT
+                        m_profile->copyExceptPositions( m_global_entente );
+
+... and using -DDISALLOW_FLANKING_TRANSITIONS -DUSE_DEL_IN_DEL_OUT for the CFLAGS.
+
+Isolating every part I can think of, it seems right.  Is it possible that this DEL_IN_DEL_OUT idea is not consistent with HMMs to such an extent that the Baum-Welch algorithm fails?  Seems more likely that it's a lingering bug.  As such I want to find it because it could rear its ugly head elsewhere.  I also don't like how the fromMatch::toDeletionOut transition ends up being trained so small almost always. But that seems like a design flaw of the model.
+
+... which leads me to this: the hmmer plan7 model implements del-in and del-out differently.  There, the probability of beginning in any particular position is equal (via del-in, but of course there's also usual begin->deletion->deletion->match transitions).  This is what the HMMer folks and the Durbin, et al. folks are addressing with "wing retraction": the model includes two routes to an internal match state which bypass the intervening match states, but in search algorithms those two routes are united (for some reason that I didn't quite get).  In the discussion [eg. search for "wing retraction" in the HMMer user's guide], it seems that their swentry/swexit (analogous to my deletionIn/deletionOut) each has a constant probability for all states.  And frankly that makes a lot of sense.  If you think of this as representing the phenomenon of random sequence editing at a scale much larger than the scale of model-internal indels, then being a 10% fragment at the end or the beginning or the middle should all have equal probability.  In a way, rather than make it _more likely_ to have these excisions near ends of the sequence, it'd be better to err (if one insists on erring) on the side of making them less likely to be near the edges, if only to reflect our inability to distinguish a short excision from the usual deletion that just happens to be flanking.
+
+Thus I will introduce a new concept that matches Hmmer's "aggregate entry/exit probabilities".
+Basically, it will retain B->Z and M->W transitions, but not Z->* nor W->* transitions.  There will be no need for scaled_match_distributions.  I _could_ impose a constraint that B->Z and M->W are identical, but hmmer doesn't, and I can see that for training it would be better to focus where the data are... for now I'll leave them separate, which is easier.
+
+----
+I've realized that the existing code can be (at least temporarily) hijacked by setting the m_DeletionOut_distribution and m_deletionIn_distribution to be 1 both for looping and for exiting.  The only other change is to make sure that the value gets divided by the profile length when accessing B->Z from the receiving side.  That is, in forward_calculateRow(..) and backward_calculateRow(..) and updateGlobalEntenteForSequence(..) and calculateAlignmentProfilePosition(..) and in calculatePositionSpecificSequenceScoreCoefficients(..) and the multiple alignment fns -- I wonder if I'll need to change anything else --> NOTE we'll also need to pass in the top row unless -DDISALLOW_FLANKING_TRANSITIONS is set. --> Just thought of a way to avoid having to pass the top row: use the m_deletionIn fields already available.  Kinda lamely space-wasting, though: every row would have m_deletionIns identical to the top row's Match state values.
+
+The problem is that I think we will need to store a m_deletionIn field for backwardRows if we insist on being able to calculate the score, so we can keep track of the mass that passes through the B->Z transition.  For forward calculation, the missing mass is the remaining fraction: B->Z * ( ( profile.length() - 1 ) - ( pos.i + 1 ) ) / ( profile.length() - 1 ).  We don't need to keep track of it.  Nor do we ever need to keep track of the delOut mass, because backwards it just goes straight to the PostAlign state, and forwards ... hrm maybe we do need to keep track of it for the same reason we keep track of the delIn here.  Yes. /// I could just keep all of them and use the redundant one anyway, sort-of-simplifying things.  Then rather than B->Z*1/(profile_length-1), we'd use prev_row.m_deletionIn * ( 1 / ( ( profile.length() - 1 ) - ( pos.i + 1 ) ) ), and each m_deletionIn would be the remaining fraction as described above: that's the total prob of all paths that haven't yet deleted-in.  That maintains its interpretation from before.
+
